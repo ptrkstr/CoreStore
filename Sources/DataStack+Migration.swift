@@ -52,11 +52,7 @@ extension DataStack {
         self.coordinator.performAsynchronously {
             
             if let _ = self.persistentStoreForStorage(storage) {
-                
-                DispatchQueue.main.async {
-                    
-                    completion(.success(storage))
-                }
+                completion(.success(storage))
                 return
             }
             
@@ -67,11 +63,7 @@ extension DataStack {
                     finalURL: nil,
                     finalStoreOptions: storage.storeOptions
                 )
-                
-                DispatchQueue.main.async {
-                    
-                    completion(.success(storage))
-                }
+                completion(.success(storage))
             }
             catch {
                 
@@ -80,14 +72,40 @@ extension DataStack {
                     storeError,
                     "Failed to add \(Internals.typeName(storage)) to the stack."
                 )
-                DispatchQueue.main.async {
-                    
-                    completion(.failure(storeError))
-                }
+                completion(.failure(storeError))
             }
         }
     }
-    
+
+
+    /**
+     Example usage:
+     ```
+     try! CoreStoreDefaults.dataStack.addStorageSynchronously(SQLiteStore(
+         fileURL: SQLiteStore().fileURL,
+         localStorageOptions: .allowSynchronousLightweightMigration
+     ))
+     ```
+     */
+    @discardableResult
+    public func addStorageSynchronously<T: LocalStorage>(_ storage: T) throws -> T {
+        let sema = DispatchSemaphore(value: 0)
+
+        var setupResult: SetupResult<T>!
+
+        DispatchQueue.global(qos: .userInitiated).async {
+
+            _ = CoreStoreDefaults.dataStack.addStorage(storage) { result in
+                setupResult = result
+                sema.signal()
+            }
+
+        }
+        sema.wait()
+
+        return try setupResult.get()
+    }
+
     /**
      Asynchronously adds a `LocalStorage` to the stack. Migrations are also initiated by default.
      ```
@@ -116,11 +134,7 @@ extension DataStack {
         return self.coordinator.performSynchronously {
             
             if let _ = self.persistentStoreForStorage(storage) {
-                
-                DispatchQueue.main.async {
-                    
-                    completion(.success(storage))
-                }
+                completion(.success(storage))
                 return nil
             }
             
@@ -128,11 +142,7 @@ extension DataStack {
                 
                 if let existingStorage = persistentStore.storageInterface as? T,
                     storage.matchesPersistentStore(persistentStore) {
-                    
-                    DispatchQueue.main.async {
-                        
-                        completion(.success(existingStorage))
-                    }
+                    completion(.success(existingStorage))
                     return nil
                 }
                 
@@ -141,10 +151,7 @@ extension DataStack {
                     error,
                     "Failed to add \(Internals.typeName(storage)) at \"\(fileURL)\" because a different \(Internals.typeName(NSPersistentStore.self)) at that URL already exists."
                 )
-                DispatchQueue.main.async {
-                    
-                    completion(.failure(error))
-                }
+                completion(.failure(error))
                 return nil
             }
             
@@ -178,11 +185,7 @@ extension DataStack {
                                         soureModelHint: self.schemaHistory.schema(for: metadata)?.rawModel()
                                     )
                                     _ = try self.addStorageAndWait(storage)
-                                    
-                                    DispatchQueue.main.async {
-                                        
-                                        completion(.success(storage))
-                                    }
+                                    completion(.success(storage))
                                 }
                                 catch {
                                     
@@ -198,11 +201,7 @@ extension DataStack {
                         do {
                             
                             _ = try self.addStorageAndWait(storage)
-                            
-                            DispatchQueue.main.async {
-                                
-                                completion(.success(storage))
-                            }
+                            completion(.success(storage))
                         }
                         catch {
                             
@@ -217,18 +216,10 @@ extension DataStack {
                     do {
                         
                         _ = try self.addStorageAndWait(storage)
-                        
-                        DispatchQueue.main.async {
-                            
-                            completion(.success(storage))
-                        }
+                        completion(.success(storage))
                     }
                     catch {
-                        
-                        DispatchQueue.main.async {
-                            
-                            completion(.failure(CoreStoreError(error)))
-                        }
+                        completion(.failure(CoreStoreError(error)))
                     }
                     return nil
             }
@@ -239,10 +230,7 @@ extension DataStack {
                     storeError,
                     "Failed to load SQLite \(Internals.typeName(NSPersistentStore.self)) metadata."
                 )
-                DispatchQueue.main.async {
-                    
-                    completion(.failure(storeError))
-                }
+                completion(.failure(storeError))
                 return nil
             }
         }
@@ -375,22 +363,13 @@ extension DataStack {
                 error,
                 "Failed to find migration steps from \(Internals.typeName(storage)) at URL \"\(storage.fileURL)\" to version model \"\(self.schemaHistory.rawModel)\"."
             )
-            
-            DispatchQueue.main.async {
-                
-                completion(.failure(error))
-            }
+            completion(.failure(error))
             return nil
         }
         
         let numberOfMigrations: Int64 = Int64(migrationSteps.count)
         if numberOfMigrations == 0 {
-            
-            DispatchQueue.main.async {
-                
-                completion(.success([]))
-                return
-            }
+            completion(.success([]))
             return nil
         }
         else if numberOfMigrations > 1 && storage.localStorageOptions.contains(.preventProgressiveMigration) {
@@ -400,10 +379,7 @@ extension DataStack {
                 error,
                 "Failed to find migration mapping from the \(Internals.typeName(storage)) at URL \"\(storage.fileURL)\" to version model \"\(self.modelVersion)\" without requiring progessive migrations."
             )
-            DispatchQueue.main.async {
-                
-                completion(.failure(error))
-            }
+            completion(.failure(error))
             return nil
         }
         
@@ -454,11 +430,7 @@ extension DataStack {
                             cancelled = true
                         }
                     }
-                    
-                    DispatchQueue.main.async {
-                        
-                        withExtendedLifetime(childProgress) { (_: Progress) -> Void in }
-                    }
+                    withExtendedLifetime(childProgress) { (_: Progress) -> Void in }
                 }
             )
             
@@ -469,13 +441,9 @@ extension DataStack {
         migrationOperation.qualityOfService = .utility
         operations.forEach { migrationOperation.addDependency($0) }
         migrationOperation.addExecutionBlock { () -> Void in
-            
-            DispatchQueue.main.async {
-                
-                progress.setProgressHandler(nil)
-                completion(migrationResult ?? .success(migrationTypes))
-                return
-            }
+            progress.setProgressHandler(nil)
+            completion(migrationResult ?? .success(migrationTypes))
+            return
         }
         
         operations.append(migrationOperation)
